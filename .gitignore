@@ -1,0 +1,52 @@
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.bak
+*.tmp
+.env
+.env.*
+!.env.example
+
+# Foundry 编译产物
+blockchain/out/
+blockchain/cache/
+# 依赖库的 Git 信息（防止出现嵌套子模块问题）
+blockchain/lib/**/.git
+# 部署记录
+blockchain/broadcast/
+# 静态分析产物
+slither-*.json
+
+# 编译后的二进制文件
+app/**/app
+app/**/main
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+# Go 测试覆盖率产物
+*.out
+# go-zero 自动生成的缓存
+app/internal/config/config.yaml.dev
+
+# 依赖包
+web/node_modules/
+# Next.js 构建产物
+web/.next/
+web/out/
+# 构建日志
+web/npm-debug.log*
+web/yarn-debug.log*
+web/yarn-error.log*
+# 前端环境文件
+web/.env.local
+web/.env.development.local
+web/.env.test.local
+web/.env.production.local
+
+deploy/etcd/data/
+deploy/mysql/data/
+deploy/redis/data/
