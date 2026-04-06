@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Test, console} from "forge-std/Test.sol";
 import {ZenithVault} from "../src/ZenithVault.sol";
-import {MockToken} from "./MockToken.sol"; // 已经从外部导入了
+import {MockToken} from "../src/MockToken.sol"; 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
