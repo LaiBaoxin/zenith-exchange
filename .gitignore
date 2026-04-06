@@ -1,3 +1,4 @@
+# ======= 系统 & IDE 杂项 =======
 .DS_Store
 Thumbs.db
 .idea/
@@ -5,48 +6,51 @@ Thumbs.db
 *.swp
 *.bak
 *.tmp
+
+# ======= 环境变量与私钥 (严禁提交) =======
 .env
 .env.*
 !.env.example
 
-# Foundry 编译产物
-blockchain/out/
-blockchain/cache/
-# 依赖库的 Git 信息（防止出现嵌套子模块问题）
-blockchain/lib/**/.git
-# 部署记录
-blockchain/broadcast/
+# ======= [Contracts] Foundry 相关 =======
+# 编译产物
+contracts/out/
+contracts/cache/
+# 依赖库的 Git 信息（防止嵌套子模块导致 Git 报错）
+contracts/lib/**/.git
+# 部署记录和广播日志 (包含部署账号地址)
+contracts/broadcast/
 # 静态分析产物
 slither-*.json
 
+# ======= [Backend] Go 相关 =======
 # 编译后的二进制文件
-app/**/app
-app/**/main
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+backend/bin/
+backend/main
+backend/*.exe
+backend/*.so
+backend/*.dylib
 # Go 测试覆盖率产物
 *.out
-# go-zero 自动生成的缓存
-app/internal/config/config.yaml.dev
+# 配置文件 (保留 example 供他人参考)
+backend/etc/*.yaml
+!backend/etc/*.example.yaml
 
+# ======= [Web] React/Next.js 相关 =======
 # 依赖包
 web/node_modules/
-# Next.js 构建产物
+# 构建产物
 web/.next/
 web/out/
-# 构建日志
+web/dist/
+# 各种包管理器的日志
 web/npm-debug.log*
 web/yarn-debug.log*
 web/yarn-error.log*
-# 前端环境文件
-web/.env.local
-web/.env.development.local
-web/.env.test.local
-web/.env.production.local
+web/pnpm-debug.log*
 
+# ======= [Infrastructure] 容器与数据库数据 =======
 deploy/etcd/data/
 deploy/mysql/data/
 deploy/redis/data/
+deploy/clickhouse/data/
