@@ -1,4 +1,4 @@
-# ======= 系统 & IDE 杂项 =======
+# ======= 系统 & IDE 忽略 =======
 .DS_Store
 Thumbs.db
 .idea/
@@ -7,18 +7,19 @@ Thumbs.db
 *.bak
 *.tmp
 
-# ======= 环境变量与私钥 (严禁提交) =======
+# ======= 环境变量与私钥 (绝对不能提交) =======
 .env
 .env.*
 !.env.example
 
 # ======= [Contracts] Foundry 相关 =======
-# 编译产物
 contracts/out/
 contracts/cache/
-# 依赖库的 Git 信息（防止嵌套子模块导致 Git 报错）
+contracts/.gitignore
+Contracts/.github/*
+# 忽略依赖库的 Git 信息（防止嵌套子模块冲突）
 contracts/lib/**/.git
-# 部署记录和广播日志 (包含部署账号地址)
+# 部署记录和广播日志 (包含私密地址信息)
 contracts/broadcast/
 # 静态分析产物
 slither-*.json
@@ -27,29 +28,37 @@ slither-*.json
 # 编译后的二进制文件
 backend/bin/
 backend/main
-backend/*.exe
-backend/*.so
-backend/*.dylib
+backend/zenith-api
+backend/.gitignore
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 # Go 测试覆盖率产物
 *.out
-# 配置文件 (保留 example 供他人参考)
-backend/etc/*.yaml
-!backend/etc/*.example.yaml
+# 配置文件忽略 (保留 example)
+backend/internal/config/config.yaml
+!backend/internal/config/config.example.yaml
 
-# ======= [Web] React/Next.js 相关 =======
-# 依赖包
+# ======= [Web] 前端相关 =======
 web/node_modules/
 # 构建产物
-web/.next/
-web/out/
 web/dist/
-# 各种包管理器的日志
+web/out/
+web/.next/
+# 前端环境文件
+web/.env.local
+web/.env.development.local
+web/.env.test.local
+web/.env.production.local
+# 构建日志
 web/npm-debug.log*
 web/yarn-debug.log*
 web/yarn-error.log*
-web/pnpm-debug.log*
+web/.gitignore
 
-# ======= [Infrastructure] 容器与数据库数据 =======
+# ======= [Infrastructure] 数据库数据 =======
 deploy/etcd/data/
 deploy/mysql/data/
 deploy/redis/data/
