@@ -18,8 +18,22 @@ type Config struct {
 	} `mapstructure:"jwt"`
 	Blockchain struct {
 		VaultAddress string `mapstructure:"vault_address"`
+		TokenAddress string `mapstructure:"token_address"`
 		KeyPath      string `mapstructure:"key_path"` // 存储私钥文件的路径
+		ChainID      uint64 `mapstructure:"chain_id"`
 	} `mapstructure:"blockchain"`
+	DataBase struct {
+		MySQL struct {
+			Source string `mapstructure:"source"`
+		} `mapstructure:"mysql"`
+		ClickHouse struct {
+			Host     string `mapstructure:"host"`
+			Port     int    `mapstructure:"port"`
+			Database string `mapstructure:"database"`
+			Username string `mapstructure:"username"`
+			Password string `mapstructure:"password"`
+		} `mapstructure:"clickhouse"`
+	} `mapstructure:"database"`
 }
 
 var (
