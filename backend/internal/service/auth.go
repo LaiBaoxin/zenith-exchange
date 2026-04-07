@@ -47,8 +47,8 @@ func (s *AuthService) LoginByAddress(address string) (string, string, error) {
 				account := model.Account{
 					UserID:    user.ID,
 					Currency:  cur,
-					Available: 0,
-					Frozen:    0,
+					Available: "0",
+					Frozen:    "0",
 					Version:   0,
 				}
 				if err = tx.Create(&account).Error; err != nil {

@@ -17,13 +17,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		Address string `json:"address" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		response.Error(c, http.StatusBadRequest, "参数错误")
 		return
 	}
 
 	token, walletAddr, err := h.authService.LoginByAddress(req.Address)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 	response.Success(c, gin.H{
