@@ -8,36 +8,52 @@ import (
 	"github.com/wwater/zenith-exchange/backend/internal/middleware"
 )
 
-// SetupRouter 接收所有需要的 Handler 作为参数
-func SetupRouter(vaultH *controller.VaultHandler) *gin.Engine {
+// SetupRouter 接收所有 Handler 实例
+func SetupRouter(
+	vaultH *controller.VaultHandler,
+	authH *controller.AuthHandler,
+	sysH *controller.SystemHandler,
+) *gin.Engine {
 	r := gin.Default()
 
-	// 注册全局中间件
+	// 全局中间件
 	r.Use(CORSMiddleware())
 
-	// 基础健康检查
+	// 健康检查
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	api := r.Group("/api/v1")
+	api := r.Group("/api")
 	{
-		vault := api.Group("/vault").Use(middleware.AuthMiddleware())
+		// 不走鉴权
+		api.POST("/auth/login", authH.Login) // 登录
+
+		// 需要鉴权的组
+		authGroup := api.Group("/", middleware.AuthMiddleware())
 		{
-			// 提现签名接口
-			vault.POST("/withdraw-sign", vaultH.HandleWithdraw)
+			// 获取全局配置
+			authGroup.GET("/system/config", sysH.GetConfig)
+
+			// 提现相关组
+			vault := authGroup.Group("/vault")
+			{
+				vault.POST("/withdraw-sign", vaultH.HandleWithdraw)
+			}
 		}
 	}
 
 	return r
 }
 
-// CORSMiddleware 保持跨域处理
+// CORSMiddleware 处理跨域请求
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
