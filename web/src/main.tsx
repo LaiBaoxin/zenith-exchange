@@ -13,10 +13,10 @@ const queryClient = new QueryClient();
 const config = createConfig({
     chains: [anvil],
     connectors: [
-        injected(), // 允许连接 MetaMask 或浏览器钱包
+        injected(), // 自动识别 MetaMask
     ],
     transports: {
-        [anvil.id]: http(import.meta.env.VITE_ANVIL_URL),
+        [anvil.id]: http(import.meta.env.VITE_ANVIL_URL || 'http://127.0.0.1:8545'),
     },
 });
 
