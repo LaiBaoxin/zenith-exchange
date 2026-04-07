@@ -1,4 +1,10 @@
-import axios, {type AxiosInstance, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
+import axios, { type AxiosInstance, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
+
+interface BackEndResponse<T = any> {
+    code: number;
+    data: T;
+    msg: string;
+}
 
 const request: AxiosInstance = axios.create({
     baseURL: import.meta.env.VITE_API_BASE_URL,
@@ -11,25 +17,38 @@ const request: AxiosInstance = axios.create({
 // 请求拦截器
 request.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+        }
         return config;
     },
-    (error) => {
-        return Promise.reject(error);
-    }
+    (error) => Promise.reject(error)
 );
 
 // 响应拦截器
 request.interceptors.response.use(
-    (response: AxiosResponse) => {
-        // Axios 的 response.data 才是后端返回的内容
-        // 这里我们可以根据后端返回的结构（比如 {code: 200, data: {}}）进行二次解构
-        return response.data;
+    (response: AxiosResponse<BackEndResponse>) => {
+        const res = response.data;
+
+        if (res.code === 200) {
+            console.log("res.data", res.data)
+            return res.data;
+        }
+
+        const errorMsg = res.msg || '业务请求失败';
+        console.error('业务错误:', errorMsg);
+        return Promise.reject(new Error(errorMsg));
     },
     (error) => {
-        // 处理 HTTP 状态码错误
-        const message = error.response?.data?.error || error.message || 'Unknown Error';
-        console.error('API Error:', message);
-        return Promise.reject(error);
+        const message = error.response?.data?.msg || error.message || '网络连接异常';
+
+        if (error.response?.status === 401) {
+            console.warn('登录已过期，请重新登录');
+            window.localStorage.clear()
+        }
+
+        return Promise.reject(new Error(message));
     }
 );
 
