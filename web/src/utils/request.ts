@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 
+// 定义后端通用的返回结构
 interface BackEndResponse<T = any> {
     code: number;
     data: T;
@@ -17,7 +18,7 @@ const request: AxiosInstance = axios.create({
 // 请求拦截器
 request.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
-        const token = localStorage.getItem('token');
+        const token = localStorage.getItem('zenith_auth_token');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
@@ -30,22 +31,21 @@ request.interceptors.request.use(
 request.interceptors.response.use(
     (response: AxiosResponse<BackEndResponse>) => {
         const res = response.data;
-
         if (res.code === 200) {
-            console.log("res.data", res.data)
             return res.data;
         }
 
         const errorMsg = res.msg || '业务请求失败';
-        console.error('业务错误:', errorMsg);
         return Promise.reject(new Error(errorMsg));
     },
     (error) => {
         const message = error.response?.data?.msg || error.message || '网络连接异常';
 
         if (error.response?.status === 401) {
-            console.warn('登录已过期，请重新登录');
-            window.localStorage.clear()
+            console.warn('登录已过期或未授权');
+            localStorage.removeItem('zenith_auth_token');
+            localStorage.removeItem('user_address');
+            window.location.href = '/';
         }
 
         return Promise.reject(new Error(message));
