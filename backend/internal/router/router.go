@@ -13,6 +13,7 @@ func SetupRouter(
 	vaultH *controller.VaultHandler,
 	authH *controller.AuthHandler,
 	sysH *controller.SystemHandler,
+	assetsH *controller.AssetsHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -40,6 +41,9 @@ func SetupRouter(
 			{
 				vault.POST("/withdraw-sign", vaultH.HandleWithdraw)
 			}
+
+			// 资产接口
+			authGroup.GET("/assets/balance", assetsH.GetBalance)
 		}
 	}
 

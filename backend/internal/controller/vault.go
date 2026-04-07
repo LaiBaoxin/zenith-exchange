@@ -2,49 +2,41 @@ package controller
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/wwater/zenith-exchange/backend/internal/service"
-	"github.com/wwater/zenith-exchange/backend/pkg/config"
 	"github.com/wwater/zenith-exchange/backend/pkg/response"
-	"math/big"
+	"github.com/wwater/zenith-exchange/backend/pkg/utils"
 	"net/http"
 )
 
 type VaultHandler struct {
-	VaultAddr string
+	vaultAddr string
 }
 
-func NewVaultHandler(vaultAddr string) *VaultHandler {
-	return &VaultHandler{VaultAddr: vaultAddr}
+func NewVaultHandler(addr string) *VaultHandler {
+	return &VaultHandler{vaultAddr: addr}
 }
 
+// HandleWithdraw 生成提现签名
 func (h *VaultHandler) HandleWithdraw(c *gin.Context) {
 	var req struct {
-		Amount string `json:"amount" binding:"required"`
+		Amount   string `json:"amount" binding:"required"`
+		Currency string `json:"currency" binding:"required"`
 	}
+
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, "Invalid params")
+		response.Error(c, http.StatusBadRequest, "参数错误")
 		return
 	}
 
-	// 从中间件上下文获取地址
-	userAddr, _ := c.Get("user_address")
-	amountInt, _ := new(big.Int).SetString(req.Amount, 10)
+	// 获取当前用户钱包地址（从鉴权中间件传过来）
+	walletAddr := c.GetString("wallet_address")
 
-	// 模拟 Nonce 获取逻辑
-	var nonce uint64 = 1
-
-	res, err := service.SignWithdraw(
-		userAddr.(string),
-		config.GlobalConfig.Blockchain.TokenAddress,
-		amountInt,
-		nonce,
-		config.SignerPrivateKey,
-	)
-
+	sig, err := utils.SignWithdrawData(walletAddr, req.Amount)
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, err.Error())
+		response.Error(c, http.StatusInternalServerError, "签名生成失败")
 		return
 	}
-
-	response.Success(c, res)
+	response.Success(c, gin.H{
+		"signature": sig,
+		"vault":     h.vaultAddr,
+	})
 }

@@ -1,16 +1,13 @@
 package model
 
-import (
-	"time"
-)
+import "time"
 
-// Account 资产账户表
 type Account struct {
-	ID        uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID    uint64    `gorm:"not null;uniqueIndex:uk_user_currency" json:"user_id"`
-	Currency  string    `gorm:"type:varchar(20);not null;uniqueIndex:uk_user_currency" json:"currency"`
-	Available float64   `gorm:"type:decimal(36,18);not null;default:0" json:"available"` // 注意：高精度金融计算建议用 shopspring/decimal
-	Frozen    float64   `gorm:"type:decimal(36,18);not null;default:0" json:"frozen"`
-	Version   uint32    `gorm:"not null;default:0" json:"version"` // 乐观锁
-	UpdatedAt time.Time `gorm:"type:datetime(3);default:CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)" json:"updated_at"`
+	ID        uint64    `gorm:"primaryKey" json:"id"`
+	UserID    uint64    `gorm:"index:uk_user_currency" json:"user_id"`
+	Currency  string    `gorm:"size:20;index:uk_user_currency" json:"currency"`
+	Available string    `gorm:"type:decimal(36,18);default:'0'" json:"available"`
+	Frozen    string    `gorm:"type:decimal(36,18);default:'0'" json:"frozen"`
+	Version   uint32    `gorm:"default:0" json:"version"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
