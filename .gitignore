@@ -63,3 +63,8 @@ deploy/etcd/data/
 deploy/mysql/data/
 deploy/redis/data/
 deploy/clickhouse/data/
+
+# ========== 私钥存放地址 ==========
+.secrets/*
+*.key
+.env
