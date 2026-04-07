@@ -10,7 +10,8 @@ import (
 
 type Config struct {
 	Server struct {
-		Port int `mapstructure:"port"`
+		Port int    `mapstructure:"port"`
+		Mode string `mapstructure:"mode"`
 	}
 	JWT struct {
 		Secret     string `mapstructure:"secret"`

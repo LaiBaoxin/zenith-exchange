@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"log"
 
 	"github.com/wwater/zenith-exchange/backend/internal/controller"
@@ -14,6 +15,13 @@ func main() {
 	// 加载配置（包括从 IO 读取私钥）
 	config.InitConfig()
 
+	// 设置gin的运行模式
+	if config.GlobalConfig.Server.Mode == "release" {
+		gin.SetMode(gin.ReleaseMode)
+	} else {
+		gin.SetMode(gin.DebugMode)
+	}
+
 	// 初始化DB连接
 	DB.InitDB()
 
@@ -21,9 +29,10 @@ func main() {
 	vaultHandler := controller.NewVaultHandler(config.GlobalConfig.Blockchain.VaultAddress)
 	authHandler := &controller.AuthHandler{}
 	sysHandler := &controller.SystemHandler{}
+	assetHandler := &controller.AssetsHandler{}
 
 	// 调用 Router 直接注入 Handler
-	r := router.SetupRouter(vaultHandler, authHandler, sysHandler)
+	r := router.SetupRouter(vaultHandler, authHandler, sysHandler, assetHandler)
 
 	// 获取端口号
 	port := fmt.Sprintf(":%d", config.GlobalConfig.Server.Port)
