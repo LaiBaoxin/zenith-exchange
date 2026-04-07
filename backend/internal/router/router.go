@@ -14,6 +14,8 @@ func SetupRouter(
 	authH *controller.AuthHandler,
 	sysH *controller.SystemHandler,
 	assetsH *controller.AssetsHandler,
+	wsH *controller.WSHandler,
+	marketH *controller.MarketHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -28,7 +30,8 @@ func SetupRouter(
 	api := r.Group("/api")
 	{
 		// 不走鉴权
-		api.POST("/auth/login", authH.Login) // 登录
+		api.POST("/auth/login", authH.Login)                      // 登录
+		api.GET("/ws", middleware.AuthMiddleware(), wsH.HandleWS) // 创建ws连接
 
 		// 需要鉴权的组
 		authGroup := api.Group("/", middleware.AuthMiddleware())
@@ -44,6 +47,9 @@ func SetupRouter(
 
 			// 资产接口
 			authGroup.GET("/assets/balance", assetsH.GetBalance)
+
+			// 市场行情接口
+			api.GET("/market/kline", marketH.GetKLines)
 		}
 	}
 

@@ -48,7 +48,7 @@ func NewDepositMonitor(rpcUrl, vaultAddr string, hub *service.Hub) *DepositMonit
 
 // Start 开启监听函数
 func (m *DepositMonitor) Start() {
-	log.Printf("⚡️ 启动 Deposit 事件监听器 (Vault: %s)...", m.vaultAddr.Hex())
+	log.Printf("启动 Deposit 事件监听器 (Vault: %s)...", m.vaultAddr.Hex())
 
 	query := ethereum.FilterQuery{
 		Addresses: []common.Address{m.vaultAddr},

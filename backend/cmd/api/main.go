@@ -34,6 +34,10 @@ func main() {
 	hub := service.NewHub()
 	go hub.Run()
 
+	marketSvc := service.NewMarketService(hub)
+	// mock BTC_USDT
+	marketSvc.StartPriceSimulationMock("BTC_USDT")
+
 	// 监听用户存款websocket
 	monitorSvc := monitor.NewDepositMonitor(
 		"ws://127.0.0.1:8545",
@@ -48,9 +52,11 @@ func main() {
 	authHandler := &controller.AuthHandler{}
 	sysHandler := &controller.SystemHandler{}
 	assetHandler := &controller.AssetsHandler{}
+	wsHandler := &controller.WSHandler{}
+	marketHandler := &controller.MarketHandler{}
 
 	// 调用 Router 直接注入 Handler
-	r := router.SetupRouter(vaultHandler, authHandler, sysHandler, assetHandler)
+	r := router.SetupRouter(vaultHandler, authHandler, sysHandler, assetHandler, wsHandler, marketHandler)
 
 	// 获取端口号
 	port := fmt.Sprintf(":%d", config.GlobalConfig.Server.Port)
