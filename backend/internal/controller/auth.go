@@ -8,7 +8,13 @@ import (
 )
 
 type AuthHandler struct {
-	authService service.AuthService
+	authService *service.AuthService
+}
+
+func NewAuthHandler(svc *service.AuthService) *AuthHandler {
+	return &AuthHandler{
+		authService: svc,
+	}
 }
 
 // Login 登录

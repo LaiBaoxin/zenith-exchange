@@ -7,11 +7,17 @@ import (
 )
 
 type SystemHandler struct {
-	sysService service.SystemService
+	systemService *service.SystemService
+}
+
+func NewSystemHandler(svc *service.SystemService) *SystemHandler {
+	return &SystemHandler{
+		systemService: svc,
+	}
 }
 
 func (h *SystemHandler) GetConfig(c *gin.Context) {
-	data := h.sysService.GetGlobalConfig()
+	data := h.systemService.GetGlobalConfig()
 	response.Success(c, gin.H{
 		"code": 200,
 		"data": data,
