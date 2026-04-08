@@ -67,6 +67,12 @@ func main() {
 		orderHandler,
 	)
 
+	// 初始化加载订单本
+	matchSvc := service.NewMatchService(hub)
+	if err := matchSvc.InitOrderBook(); err != nil {
+		log.Fatalf("无法初始化订单簿: %v", err)
+	}
+
 	// 获取端口号
 	port := fmt.Sprintf(":%d", config.GlobalConfig.Server.Port)
 

@@ -13,9 +13,10 @@ import (
 	"github.com/wwater/zenith-exchange/backend/internal/db"
 	"github.com/wwater/zenith-exchange/backend/internal/model"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-// OrderItem 内存中的精简订单，保持高频匹配性能
+// OrderItem 内存中的精简订单
 type OrderItem struct {
 	ID        uint64
 	UserID    uint64
@@ -26,9 +27,14 @@ type OrderItem struct {
 
 type OrderBook struct {
 	Symbol string
-	Bids   []*OrderItem // 买单 (Price DESC)
-	Asks   []*OrderItem // 卖单 (Price ASC)
+	Bids   []*OrderItem
+	Asks   []*OrderItem
 	mu     sync.Mutex
+}
+
+type PriceLevel struct {
+	Price  string `json:"price"`
+	Amount string `json:"amount"`
 }
 
 type MatchService struct {
@@ -57,15 +63,11 @@ func (s *MatchService) ProcessOrder(order *model.Order) {
 	book.mu.Lock()
 	defer book.mu.Unlock()
 
-	// 将 float64 转为 decimal 保证撮合精度
-	price := decimal.NewFromFloat(order.Price)
-	amount := decimal.NewFromFloat(order.Amount)
-
 	newOrder := &OrderItem{
 		ID:        order.ID,
 		UserID:    order.UserID,
-		Price:     price,
-		Amount:    amount,
+		Price:     decimal.NewFromFloat(order.Price),
+		Amount:    decimal.NewFromFloat(order.Amount),
 		Timestamp: order.CreatedAt,
 	}
 
@@ -74,6 +76,8 @@ func (s *MatchService) ProcessOrder(order *model.Order) {
 	} else {
 		s.match(book, newOrder, &book.Bids, false)
 	}
+
+	s.BroadcastDepth(book.Symbol)
 }
 
 func (s *MatchService) match(book *OrderBook, taker *OrderItem, makers *[]*OrderItem, isTakerBuy bool) {
@@ -81,8 +85,6 @@ func (s *MatchService) match(book *OrderBook, taker *OrderItem, makers *[]*Order
 
 	for len(*makers) > 0 && remaining.GreaterThan(decimal.Zero) {
 		maker := (*makers)[0]
-
-		// 价格匹配逻辑
 		canMatch := false
 		if isTakerBuy {
 			canMatch = taker.Price.GreaterThanOrEqual(maker.Price)
@@ -95,11 +97,8 @@ func (s *MatchService) match(book *OrderBook, taker *OrderItem, makers *[]*Order
 		}
 
 		matchedAmount := decimal.Min(remaining, maker.Amount)
-		matchPrice := maker.Price
-
-		// 执行数据库更新和资产结算
-		err := s.handleTrade(book.Symbol, taker, maker, matchPrice, matchedAmount, isTakerBuy)
-		if err != nil {
+		// 注意这里传参增加了 refID (即对方订单ID) 和 changeType
+		if err := s.handleTrade(book.Symbol, taker, maker, maker.Price, matchedAmount, isTakerBuy); err != nil {
 			log.Printf("撮合事务失败: %v", err)
 			break
 		}
@@ -112,7 +111,6 @@ func (s *MatchService) match(book *OrderBook, taker *OrderItem, makers *[]*Order
 		}
 	}
 
-	// 剩余部分进入订单簿挂单
 	if remaining.GreaterThan(decimal.Zero) {
 		taker.Amount = remaining
 		s.addToOrderBook(book, taker, isTakerBuy)
@@ -126,13 +124,10 @@ func (s *MatchService) handleTrade(symbol string, taker, maker *OrderItem, price
 	if isTakerBuy {
 		side = "buy"
 	}
-
-	// 计算成交额 (Price * Amount)
 	totalQuoteAmount := price.Mul(amount)
 
 	// 事务更新：订单状态和账户余额
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
-		// 更新订单状态 (Maker & Taker)
 		if err := s.updateOrderStatus(tx, maker.ID, amount); err != nil {
 			return err
 		}
@@ -140,56 +135,117 @@ func (s *MatchService) handleTrade(symbol string, taker, maker *OrderItem, price
 			return err
 		}
 
-		// 更新账户余额
-		baseAsset := "BTC"
-		quoteAsset := "USDT"
+		baseAsset, quoteAsset := "BTC", "USDT"
 
 		if isTakerBuy {
-			// Taker 买, Maker 卖
-			// Taker (买家): 扣除 Quote 冻结 (USDT), 增加 Base 可用 (BTC)
-			if err := s.updateBalance(tx, taker.UserID, quoteAsset, totalQuoteAmount.Neg(), true); err != nil {
-				return err
-			}
-			if err := s.updateBalance(tx, taker.UserID, baseAsset, amount, false); err != nil {
-				return err
-			}
-
-			// Maker (卖家): 扣除 Base 冻结 (BTC), 增加 Quote 可用 (USDT)
-			if err := s.updateBalance(tx, maker.UserID, baseAsset, amount.Neg(), true); err != nil {
-				return err
-			}
-			if err := s.updateBalance(tx, maker.UserID, quoteAsset, totalQuoteAmount, false); err != nil {
-				return err
-			}
+			// Taker 买: 扣冻结 USDT, 加可用 BTC
+			s.updateBalance(tx, taker.UserID, quoteAsset, totalQuoteAmount.Neg(), true, taker.ID, "trade")
+			s.updateBalance(tx, taker.UserID, baseAsset, amount, false, taker.ID, "trade")
+			// Maker 卖: 扣冻结 BTC, 加可用 USDT
+			s.updateBalance(tx, maker.UserID, baseAsset, amount.Neg(), true, maker.ID, "trade")
+			s.updateBalance(tx, maker.UserID, quoteAsset, totalQuoteAmount, false, maker.ID, "trade")
 		} else {
-			// Taker 卖, Maker 买
-			// Taker (卖家): 扣除 Base 冻结 (BTC), 增加 Quote 可用 (USDT)
-			if err := s.updateBalance(tx, taker.UserID, baseAsset, amount.Neg(), true); err != nil {
-				return err
-			}
-			if err := s.updateBalance(tx, taker.UserID, quoteAsset, totalQuoteAmount, false); err != nil {
-				return err
-			}
-
-			// Maker (买家): 扣除 Quote 冻结 (USDT), 增加 Base 可用 (BTC)
-			if err := s.updateBalance(tx, maker.UserID, quoteAsset, totalQuoteAmount.Neg(), true); err != nil {
-				return err
-			}
-			if err := s.updateBalance(tx, maker.UserID, baseAsset, amount, false); err != nil {
-				return err
-			}
+			// Taker 卖: 扣冻结 BTC, 加可用 USDT
+			s.updateBalance(tx, taker.UserID, baseAsset, amount.Neg(), true, taker.ID, "trade")
+			s.updateBalance(tx, taker.UserID, quoteAsset, totalQuoteAmount, false, taker.ID, "trade")
+			// Maker 买: 扣冻结 USDT, 加可用 BTC
+			s.updateBalance(tx, maker.UserID, quoteAsset, totalQuoteAmount.Neg(), true, maker.ID, "trade")
+			s.updateBalance(tx, maker.UserID, baseAsset, amount, false, maker.ID, "trade")
 		}
-
 		return nil
 	})
 
-	if err != nil {
+	if err == nil {
+		s.syncToSecondarySystems(symbol, price, amount, side, now)
+	}
+	return err
+}
+
+// updateBalance 原子更新用户余额
+func (s *MatchService) updateBalance(tx *gorm.DB, userID uint64, asset string, change decimal.Decimal, isFrozen bool, refID uint64, changeType string) error {
+	var account model.Account
+	// 1. 悲观锁锁定，确保并发安全
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("user_id = ? AND asset = ?", userID, asset).
+		First(&account).Error; err != nil {
+		return fmt.Errorf("账户不存在: %d-%s", userID, asset)
+	}
+
+	// 更新内存对象逻辑
+	accAvailable, _ := decimal.NewFromString(account.Available)
+	accFrozen, _ := decimal.NewFromString(account.Frozen)
+
+	if isFrozen {
+		accFrozen = accFrozen.Add(change)
+		account.Frozen = accFrozen.String()
+	} else {
+		accAvailable = accAvailable.Add(change)
+		account.Available = accAvailable.String()
+	}
+
+	// 记录流水
+	logEntry := model.BalanceLog{
+		UserID:     userID,
+		Currency:   asset,
+		ChangeType: changeType,
+		Amount:     change.InexactFloat64(),
+		Balance:    accAvailable.InexactFloat64(),
+		LogTime:    time.Now(),
+	}
+	if err := tx.Create(&logEntry).Error; err != nil {
 		return err
 	}
 
-	// 异步同步到 ClickHouse 和 WebSocket
-	s.syncToSecondarySystems(symbol, price, amount, side, now)
-	return nil
+	// 保存余额
+	return tx.Save(&account).Error
+}
+
+// syncToSecondarySystems 完善后的订阅推送逻辑
+func (s *MatchService) syncToSecondarySystems(symbol string, price, amount decimal.Decimal, side string, now time.Time) {
+	go func() {
+		// 写入 ClickHouse
+		_ = db.CH.Exec(context.Background(), "INSERT INTO trades (symbol, price, amount, taker_side, ts) VALUES (?, ?, ?, ?, ?)",
+			symbol, price.String(), amount.String(), side, now)
+
+		// 广播最新成交 (通过 TopicChan 进行订阅分发)
+		tradeMsg, _ := json.Marshal(map[string]interface{}{
+			"type": "TRADE_UPDATE",
+			"data": map[string]interface{}{
+				"symbol": symbol,
+				"price":  price.String(),
+				"amount": amount.String(),
+				"side":   side,
+				"ts":     now.UnixMilli(),
+			},
+		})
+
+		s.hub.TopicChan <- TopicMessage{
+			Topic:   "trade",
+			Symbol:  symbol,
+			Message: tradeMsg,
+		}
+	}()
+}
+
+// BroadcastDepth 异步广播深度更新 (适配 TopicChan)
+func (s *MatchService) BroadcastDepth(symbol string) {
+	go func() {
+		bids, asks := s.GetDepth(symbol, 20)
+		msg, _ := json.Marshal(map[string]interface{}{
+			"type": "DEPTH_UPDATE",
+			"data": map[string]interface{}{
+				"symbol": symbol,
+				"bids":   bids,
+				"asks":   asks,
+			},
+		})
+
+		s.hub.TopicChan <- TopicMessage{
+			Topic:   "depth",
+			Symbol:  symbol,
+			Message: msg,
+		}
+	}()
 }
 
 func (s *MatchService) addToOrderBook(book *OrderBook, order *OrderItem, isBuy bool) {
@@ -212,7 +268,46 @@ func (s *MatchService) addToOrderBook(book *OrderBook, order *OrderItem, isBuy b
 	}
 }
 
-// updateOrderStatus 更新订单成交额和状态
+func (s *MatchService) GetDepth(symbol string, limit int) (bids, asks []PriceLevel) {
+	s.mu.RLock()
+	book, ok := s.Books[symbol]
+	s.mu.RUnlock()
+	if !ok {
+		return []PriceLevel{}, []PriceLevel{}
+	}
+
+	book.mu.Lock()
+	defer book.mu.Unlock()
+	bids = aggregateDepth(book.Bids, limit)
+	asks = aggregateDepth(book.Asks, limit)
+	return bids, asks
+}
+
+func aggregateDepth(items []*OrderItem, limit int) []PriceLevel {
+	var levels []PriceLevel
+	if len(items) == 0 {
+		return levels
+	}
+	var currP, currA decimal.Decimal
+	for _, item := range items {
+		if currP.IsZero() {
+			currP, currA = item.Price, item.Amount
+		} else if item.Price.Equal(currP) {
+			currA = currA.Add(item.Amount)
+		} else {
+			levels = append(levels, PriceLevel{Price: currP.String(), Amount: currA.String()})
+			if len(levels) >= limit {
+				return levels
+			}
+			currP, currA = item.Price, item.Amount
+		}
+	}
+	if len(levels) < limit && !currP.IsZero() {
+		levels = append(levels, PriceLevel{Price: currP.String(), Amount: currA.String()})
+	}
+	return levels
+}
+
 func (s *MatchService) updateOrderStatus(tx *gorm.DB, orderID uint64, amount decimal.Decimal) error {
 	return tx.Model(&model.Order{}).Where("id = ?", orderID).
 		Updates(map[string]interface{}{
@@ -221,77 +316,56 @@ func (s *MatchService) updateOrderStatus(tx *gorm.DB, orderID uint64, amount dec
 		}).Error
 }
 
-// updateBalance 原子更新用户余额
-func (s *MatchService) updateBalance(tx *gorm.DB, userID uint64, asset string, change decimal.Decimal, isFrozen bool) error {
-	column := "available"
-	if isFrozen {
-		column = "frozen"
-	}
-
-	result := tx.Model(&model.Account{}).
-		Where("user_id = ? AND asset = ?", userID, asset).
-		Update(column, gorm.Expr(column+" + ?", change.InexactFloat64()))
-
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("账户不存在: UserID=%d, Asset=%s", userID, asset)
-	}
-	return nil
-}
-
-// syncToSecondarySystems 异步推送
-func (s *MatchService) syncToSecondarySystems(symbol string, price, amount decimal.Decimal, side string, now time.Time) {
-	go func() {
-		// 写入 ClickHouse
-		_ = db.CH.Exec(context.Background(),
-			"INSERT INTO trades (symbol, price, amount, taker_side, ts) VALUES (?, ?, ?, ?, ?)",
-			symbol, price.String(), amount.String(), side, now,
-		)
-
-		// 广播成交消息
-		tradeMsg, _ := json.Marshal(map[string]interface{}{
-			"type": "TRADE_UPDATE",
-			"data": map[string]interface{}{
-				"symbol": symbol,
-				"price":  price.String(),
-				"amount": amount.String(),
-				"side":   side,
-				"ts":     now.UnixMilli(),
-			},
-		})
-		s.hub.Broadcast <- tradeMsg
-	}()
-}
-
-// RemoveFromBook 从内存订单簿中移除指定订单
 func (s *MatchService) RemoveFromBook(symbol string, orderID uint64, side string) {
 	s.mu.RLock()
 	book, ok := s.Books[symbol]
 	s.mu.RUnlock()
-
 	if !ok {
 		return
 	}
-
 	book.mu.Lock()
 	defer book.mu.Unlock()
-
 	if side == "buy" {
 		book.Bids = s.removeFromSlice(book.Bids, orderID)
 	} else {
 		book.Asks = s.removeFromSlice(book.Asks, orderID)
 	}
+	s.BroadcastDepth(symbol)
 }
 
-// removeFromSlice 从切片中滤除订单
 func (s *MatchService) removeFromSlice(slice []*OrderItem, id uint64) []*OrderItem {
 	for i, item := range slice {
 		if item.ID == id {
-			// 从切片中移除元素
 			return append(slice[:i], slice[i+1:]...)
 		}
 	}
 	return slice
+}
+
+func (s *MatchService) InitOrderBook() error {
+	var activeOrders []model.Order
+	if err := db.DB.Where("status IN ?", []int8{0, 1}).Order("created_at ASC").Find(&activeOrders).Error; err != nil {
+		return err
+	}
+	for _, order := range activeOrders {
+		s.recoveryOrder(&order)
+	}
+	return nil
+}
+
+func (s *MatchService) recoveryOrder(order *model.Order) {
+	s.mu.Lock()
+	book, ok := s.Books[order.Symbol]
+	if !ok {
+		book = &OrderBook{Symbol: order.Symbol}
+		s.Books[order.Symbol] = book
+	}
+	s.mu.Unlock()
+	rem := decimal.NewFromFloat(order.Amount).Sub(decimal.NewFromFloat(order.FilledAmount))
+	if rem.GreaterThan(decimal.Zero) {
+		item := &OrderItem{ID: order.ID, UserID: order.UserID, Price: decimal.NewFromFloat(order.Price), Amount: rem, Timestamp: order.CreatedAt}
+		book.mu.Lock()
+		s.addToOrderBook(book, item, order.Side == "buy")
+		book.mu.Unlock()
+	}
 }
