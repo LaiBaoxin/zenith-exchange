@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -74,25 +75,6 @@ func (s *OrderService) CancelOrder(ctx context.Context, userID uint64, orderID u
 	})
 }
 
-// unfreezeBalance 私有辅助方法：解冻资产
-func (s *OrderService) unfreezeBalance(tx *gorm.DB, userID uint64, asset string, amount decimal.Decimal) error {
-	// 减少 frozen，增加 available
-	result := tx.Model(&model.Account{}).
-		Where("user_id = ? AND asset = ?", userID, asset).
-		Updates(map[string]interface{}{
-			"frozen":    gorm.Expr("frozen - ?", amount.InexactFloat64()),
-			"available": gorm.Expr("available + ?", amount.InexactFloat64()),
-		})
-
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("资产账户异常")
-	}
-	return nil
-}
-
 // GetTodayOrders 获取今日订单列表
 func (s *OrderService) GetTodayOrders(ctx context.Context, userID uint64, symbol string) ([]model.Order, error) {
 	var orders []model.Order
@@ -107,4 +89,67 @@ func (s *OrderService) GetTodayOrders(ctx context.Context, userID uint64, symbol
 
 	err := query.Order("created_at DESC").Find(&orders).Error
 	return orders, err
+}
+
+// CreateOrder 创建订单
+func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order) error {
+	// 开启数据库事务：先落库预扣款，成功后再送入撮合引擎
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		// 计算需要冻结的金额
+		var freezeAsset string
+		var freezeAmount decimal.Decimal
+
+		parts := strings.Split(order.Symbol, "_")
+		if len(parts) != 2 {
+			return fmt.Errorf("无效的交易对格式")
+		}
+		baseAsset := parts[0]
+		quoteAsset := parts[1]
+
+		if order.Side == "buy" {
+			// 买单：冻结 USDT = 价格 * 数量
+			freezeAsset = quoteAsset
+			freezeAmount = decimal.NewFromFloat(order.Price).Mul(decimal.NewFromFloat(order.Amount))
+		} else {
+			// 卖单：冻结 BTC = 数量
+			freezeAsset = baseAsset
+			freezeAmount = decimal.NewFromFloat(order.Amount)
+		}
+
+		// 执行冻结逻辑, 扣除 Available
+		if err := s.matchService.updateBalance(tx, order.UserID, freezeAsset, freezeAmount.Neg(), false, 0, "freeze"); err != nil {
+			return fmt.Errorf("余额不足: %v", err)
+		}
+		// 增加 Frozen
+		if err := s.matchService.updateBalance(tx, order.UserID, freezeAsset, freezeAmount, true, 0, "freeze"); err != nil {
+			return err
+		}
+
+		// 插入订单记录
+		if err := tx.Create(order).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.Fatalf("createOrder is err:%v", err.Error())
+		return err
+	}
+
+	// 只有事务返回 nil之后，才进入内存创建订单
+	go s.matchService.ProcessOrder(order)
+
+	return nil
+}
+
+// unfreezeBalance 解冻资产
+func (s *OrderService) unfreezeBalance(tx *gorm.DB, userID uint64, asset string, amount decimal.Decimal) error {
+	// 调用 matchService.updateBalance 保证流水一致性
+	// 解冻 = 冻结 -amount, 可用 +amount
+	if err := s.matchService.updateBalance(tx, userID, asset, amount.Neg(), true, 0, "unfreeze"); err != nil {
+		return err
+	}
+	return s.matchService.updateBalance(tx, userID, asset, amount, false, 0, "unfreeze")
 }

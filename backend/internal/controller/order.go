@@ -1,8 +1,10 @@
 package controller
 
 import (
+	"github.com/wwater/zenith-exchange/backend/internal/model"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/wwater/zenith-exchange/backend/internal/service"
@@ -69,4 +71,40 @@ func (h *OrderHandler) Cancel(c *gin.Context) {
 	}
 
 	response.Success(c, "撤单成功")
+}
+
+// Place 下单
+func (h *OrderHandler) Place(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+
+	var req struct {
+		Symbol string  `json:"symbol" binding:"required"`
+		Side   string  `json:"side" binding:"required,oneof=buy sell"`
+		Price  float64 `json:"price" binding:"required,gt=0"`
+		Amount float64 `json:"amount" binding:"required,gt=0"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+
+	newOrder := &model.Order{
+		UserID:    userID.(uint64),
+		Symbol:    req.Symbol,
+		Side:      req.Side,
+		Price:     req.Price,
+		Amount:    req.Amount,
+		Status:    0, // 挂单中
+		CreatedAt: time.Now(),
+	}
+
+	if err := h.orderService.CreateOrder(c.Request.Context(), newOrder); err != nil {
+		response.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	response.Success(c, gin.H{
+		"order_id": strconv.FormatUint(newOrder.ID, 10),
+	})
 }

@@ -51,10 +51,12 @@ func SetupRouter(
 
 			// 市场行情接口
 			api.GET("/market/kline", marketH.GetKLines)
+			api.GET("/market/depth", marketH.GetDepth)
 
 			// 订单相关接口
 			api.GET("/order/today", orderH.GetTodayList)
 			api.POST("/order/cancel", orderH.Cancel)
+			api.POST("/order/place", orderH.Place)
 		}
 	}
 
