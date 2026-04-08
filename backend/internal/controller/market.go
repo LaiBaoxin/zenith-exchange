@@ -11,48 +11,55 @@ import (
 
 type MarketHandler struct {
 	marketService *service.MarketService
-	matchService  *service.MatchService
 }
 
-func NewMarketHandler(s *service.MarketService, ms *service.MatchService) *MarketHandler {
-	return &MarketHandler{
-		marketService: s,
-		matchService:  ms,
-	}
+func NewMarketHandler(svc *service.MarketService) *MarketHandler {
+	return &MarketHandler{marketService: svc}
 }
 
-// GetKLines 获取 K 线历史数据
+// GetKLines 获取K线历史数据
 func (h *MarketHandler) GetKLines(c *gin.Context) {
-	symbol := c.DefaultQuery("symbol", "BTC_USDT")
-	interval := c.DefaultQuery("interval", "1m")
+	symbol := c.Query("symbol")
+	period := c.DefaultQuery("period", "1m")
 	limitStr := c.DefaultQuery("limit", "100")
 
-	limit, err := strconv.Atoi(limitStr)
-	if err != nil {
-		response.Error(c, http.StatusBadRequest, "无效的 limit 参数")
+	if symbol == "" {
+		response.Error(c, http.StatusBadRequest, "缺少 symbol 参数")
 		return
 	}
 
-	klines, err := h.marketService.GetKLines(c.Request.Context(), symbol, interval, limit)
+	limit, _ := strconv.Atoi(limitStr)
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	data, err := h.marketService.GetKLines(c.Request.Context(), symbol, period, limit)
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "获取 K 线数据失败")
+		response.Error(c, http.StatusInternalServerError, "获取K线失败: "+err.Error())
 		return
 	}
 
-	response.Success(c, klines)
+	response.Success(c, data)
 }
 
-// GetDepth 获取当前盘口深度数据
+// GetDepth 获取盘口深度
 func (h *MarketHandler) GetDepth(c *gin.Context) {
-	symbol := c.DefaultQuery("symbol", "BTC_USDT")
+	symbol := c.Query("symbol")
 	limitStr := c.DefaultQuery("limit", "20")
+
+	if symbol == "" {
+		response.Error(c, http.StatusBadRequest, "缺少 symbol 参数")
+		return
+	}
+
 	limit, _ := strconv.Atoi(limitStr)
 
-	bids, asks := h.matchService.GetDepth(symbol, limit)
+	bids, asks := h.marketService.GetMarketDepth(symbol, limit)
 
 	response.Success(c, gin.H{
 		"symbol": symbol,
 		"bids":   bids,
 		"asks":   asks,
+		"ts":     strconv.FormatInt(c.Request.Context().Value("start_time").(int64), 10), // 演示用，可以简单给个当前时间
 	})
 }

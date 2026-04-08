@@ -2,36 +2,28 @@ package controller
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/wwater/zenith-exchange/backend/internal/db"
-	"github.com/wwater/zenith-exchange/backend/internal/model"
+	"github.com/wwater/zenith-exchange/backend/internal/service"
 	"github.com/wwater/zenith-exchange/backend/pkg/response"
 	"net/http"
 )
 
-type AssetsHandler struct{}
+type AssetsHandler struct {
+	assetsService *service.AssetsService
+}
 
-func NewAssetsHandler() *AssetsHandler {
-	return &AssetsHandler{}
+func NewAssetsHandler(svc *service.AssetsService) *AssetsHandler {
+	return &AssetsHandler{assetsService: svc}
 }
 
 // GetBalance 获取用户所有资产余额
 func (h *AssetsHandler) GetBalance(c *gin.Context) {
-	// 从 AuthMiddleware 中获取缓存的 userID
-	val, exists := c.Get("user_id")
-	if !exists {
-		response.Error(c, http.StatusUnauthorized, "未授权")
-		return
-	}
-	userID := val.(uint64)
+	userID, _ := c.Get("user_id")
 
-	var accounts []model.Account
-	// 优先从 MySQL 查询，高并发场景后续可在此处加入 Redis 缓存逻辑
-	if err := db.DB.Where("user_id = ?", userID).Find(&accounts).Error; err != nil {
-		response.Error(c, http.StatusInternalServerError, "系统繁忙")
+	balances, err := h.assetsService.GetUserBalances(userID.(uint64))
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "获取资产失败")
 		return
 	}
-	response.Success(c, gin.H{
-		"code": 200,
-		"data": accounts,
-	})
+
+	response.Success(c, balances)
 }
