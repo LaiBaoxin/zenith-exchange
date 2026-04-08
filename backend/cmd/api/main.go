@@ -54,9 +54,18 @@ func main() {
 	assetHandler := &controller.AssetsHandler{}
 	wsHandler := &controller.WSHandler{}
 	marketHandler := &controller.MarketHandler{}
+	orderHandler := &controller.OrderHandler{}
 
 	// 调用 Router 直接注入 Handler
-	r := router.SetupRouter(vaultHandler, authHandler, sysHandler, assetHandler, wsHandler, marketHandler)
+	r := router.SetupRouter(
+		vaultHandler,
+		authHandler,
+		sysHandler,
+		assetHandler,
+		wsHandler,
+		marketHandler,
+		orderHandler,
+	)
 
 	// 获取端口号
 	port := fmt.Sprintf(":%d", config.GlobalConfig.Server.Port)

@@ -16,6 +16,7 @@ func SetupRouter(
 	assetsH *controller.AssetsHandler,
 	wsH *controller.WSHandler,
 	marketH *controller.MarketHandler,
+	orderH *controller.OrderHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -50,6 +51,10 @@ func SetupRouter(
 
 			// 市场行情接口
 			api.GET("/market/kline", marketH.GetKLines)
+
+			// 订单相关接口
+			api.GET("/order/today", orderH.GetTodayList)
+			api.POST("/order/cancel", orderH.Cancel)
 		}
 	}
 
