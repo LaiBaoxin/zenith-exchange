@@ -13,7 +13,6 @@ import (
 	"github.com/wwater/zenith-exchange/backend/internal/db"
 	"github.com/wwater/zenith-exchange/backend/internal/model"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // OrderItem 内存中的精简订单
@@ -117,7 +116,7 @@ func (s *MatchService) match(book *OrderBook, taker *OrderItem, makers *[]*Order
 	}
 }
 
-// handleTrade WS 广播
+// handleTrade 处理撮合后的数据库事务
 func (s *MatchService) handleTrade(symbol string, taker, maker *OrderItem, price, amount decimal.Decimal, isTakerBuy bool) error {
 	now := time.Now()
 	side := "sell"
@@ -135,22 +134,39 @@ func (s *MatchService) handleTrade(symbol string, taker, maker *OrderItem, price
 			return err
 		}
 
+		// 使用硬编码设置BTC交易
 		baseAsset, quoteAsset := "BTC", "USDT"
 
 		if isTakerBuy {
 			// Taker 买: 扣冻结 USDT, 加可用 BTC
-			s.updateBalance(tx, taker.UserID, quoteAsset, totalQuoteAmount.Neg(), true, taker.ID, "trade")
-			s.updateBalance(tx, taker.UserID, baseAsset, amount, false, taker.ID, "trade")
+			if err := s.UpdateBalance(tx, taker.UserID, quoteAsset, totalQuoteAmount.Neg(), true, taker.ID, "trade"); err != nil {
+				return err
+			}
+			if err := s.UpdateBalance(tx, taker.UserID, baseAsset, amount, false, taker.ID, "trade"); err != nil {
+				return err
+			}
 			// Maker 卖: 扣冻结 BTC, 加可用 USDT
-			s.updateBalance(tx, maker.UserID, baseAsset, amount.Neg(), true, maker.ID, "trade")
-			s.updateBalance(tx, maker.UserID, quoteAsset, totalQuoteAmount, false, maker.ID, "trade")
+			if err := s.UpdateBalance(tx, maker.UserID, baseAsset, amount.Neg(), true, maker.ID, "trade"); err != nil {
+				return err
+			}
+			if err := s.UpdateBalance(tx, maker.UserID, quoteAsset, totalQuoteAmount, false, maker.ID, "trade"); err != nil {
+				return err
+			}
 		} else {
 			// Taker 卖: 扣冻结 BTC, 加可用 USDT
-			s.updateBalance(tx, taker.UserID, baseAsset, amount.Neg(), true, taker.ID, "trade")
-			s.updateBalance(tx, taker.UserID, quoteAsset, totalQuoteAmount, false, taker.ID, "trade")
+			if err := s.UpdateBalance(tx, taker.UserID, baseAsset, amount.Neg(), true, taker.ID, "trade"); err != nil {
+				return err
+			}
+			if err := s.UpdateBalance(tx, taker.UserID, quoteAsset, totalQuoteAmount, false, taker.ID, "trade"); err != nil {
+				return err
+			}
 			// Maker 买: 扣冻结 USDT, 加可用 BTC
-			s.updateBalance(tx, maker.UserID, quoteAsset, totalQuoteAmount.Neg(), true, maker.ID, "trade")
-			s.updateBalance(tx, maker.UserID, baseAsset, amount, false, maker.ID, "trade")
+			if err := s.UpdateBalance(tx, maker.UserID, quoteAsset, totalQuoteAmount.Neg(), true, maker.ID, "trade"); err != nil {
+				return err
+			}
+			if err := s.UpdateBalance(tx, maker.UserID, baseAsset, amount, false, maker.ID, "trade"); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -161,17 +177,15 @@ func (s *MatchService) handleTrade(symbol string, taker, maker *OrderItem, price
 	return err
 }
 
-// updateBalance 原子更新用户余额
-func (s *MatchService) updateBalance(tx *gorm.DB, userID uint64, asset string, change decimal.Decimal, isFrozen bool, refID uint64, changeType string) error {
+// UpdateBalance 原子更新用户余额
+func (s *MatchService) UpdateBalance(tx *gorm.DB, userID uint64, asset string, change decimal.Decimal, isFrozen bool, refID uint64, changeType string) error {
 	var account model.Account
-	// 1. 悲观锁锁定，确保并发安全
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("user_id = ? AND asset = ?", userID, asset).
-		First(&account).Error; err != nil {
+	// 获取当前记录
+	if err := tx.Where("user_id = ? AND currency = ?", userID, asset).First(&account).Error; err != nil {
 		return fmt.Errorf("账户不存在: %d-%s", userID, asset)
 	}
 
-	// 更新内存对象逻辑
+	oldVersion := account.Version
 	accAvailable, _ := decimal.NewFromString(account.Available)
 	accFrozen, _ := decimal.NewFromString(account.Frozen)
 
@@ -183,6 +197,25 @@ func (s *MatchService) updateBalance(tx *gorm.DB, userID uint64, asset string, c
 		account.Available = accAvailable.String()
 	}
 
+	// 版本号自增
+	account.Version += 1
+
+	// 执行更新，带上版本号条件
+	result := tx.Model(&account).
+		Where("id = ? AND version = ?", account.ID, oldVersion).
+		Updates(map[string]interface{}{
+			"available": account.Available,
+			"frozen":    account.Frozen,
+			"version":   account.Version,
+		})
+
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("资产更新并发冲突 (乐观锁)")
+	}
+
 	// 记录流水
 	logEntry := model.BalanceLog{
 		UserID:     userID,
@@ -192,18 +225,13 @@ func (s *MatchService) updateBalance(tx *gorm.DB, userID uint64, asset string, c
 		Balance:    accAvailable.InexactFloat64(),
 		LogTime:    time.Now(),
 	}
-	if err := tx.Create(&logEntry).Error; err != nil {
-		return err
-	}
-
-	// 保存余额
-	return tx.Save(&account).Error
+	return tx.Create(&logEntry).Error
 }
 
 // syncToSecondarySystems 完善后的订阅推送逻辑
 func (s *MatchService) syncToSecondarySystems(symbol string, price, amount decimal.Decimal, side string, now time.Time) {
 	go func() {
-		// 写入 ClickHouse
+		// 写入 ClickHouse (用于行情分析)
 		_ = db.CH.Exec(context.Background(), "INSERT INTO trades (symbol, price, amount, taker_side, ts) VALUES (?, ?, ?, ?, ?)",
 			symbol, price.String(), amount.String(), side, now)
 
