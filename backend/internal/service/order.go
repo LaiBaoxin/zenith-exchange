@@ -117,11 +117,11 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order) erro
 		}
 
 		// 执行冻结逻辑, 扣除 Available
-		if err := s.matchService.updateBalance(tx, order.UserID, freezeAsset, freezeAmount.Neg(), false, 0, "freeze"); err != nil {
+		if err := s.matchService.UpdateBalance(tx, order.UserID, freezeAsset, freezeAmount.Neg(), false, 0, "freeze"); err != nil {
 			return fmt.Errorf("余额不足: %v", err)
 		}
 		// 增加 Frozen
-		if err := s.matchService.updateBalance(tx, order.UserID, freezeAsset, freezeAmount, true, 0, "freeze"); err != nil {
+		if err := s.matchService.UpdateBalance(tx, order.UserID, freezeAsset, freezeAmount, true, 0, "freeze"); err != nil {
 			return err
 		}
 
@@ -146,10 +146,10 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order) erro
 
 // unfreezeBalance 解冻资产
 func (s *OrderService) unfreezeBalance(tx *gorm.DB, userID uint64, asset string, amount decimal.Decimal) error {
-	// 调用 matchService.updateBalance 保证流水一致性
+	// 调用 matchService.UpdateBalance 保证流水一致性
 	// 解冻 = 冻结 -amount, 可用 +amount
-	if err := s.matchService.updateBalance(tx, userID, asset, amount.Neg(), true, 0, "unfreeze"); err != nil {
+	if err := s.matchService.UpdateBalance(tx, userID, asset, amount.Neg(), true, 0, "unfreeze"); err != nil {
 		return err
 	}
-	return s.matchService.updateBalance(tx, userID, asset, amount, false, 0, "unfreeze")
+	return s.matchService.UpdateBalance(tx, userID, asset, amount, false, 0, "unfreeze")
 }

@@ -15,7 +15,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// OrderItem 内存中的精简订单
 type OrderItem struct {
 	ID        uint64
 	UserID    uint64
@@ -49,7 +48,6 @@ func NewMatchService(h *Hub) *MatchService {
 	}
 }
 
-// ProcessOrder 接收并处理新订单
 func (s *MatchService) ProcessOrder(order *model.Order) {
 	s.mu.Lock()
 	book, ok := s.Books[order.Symbol]
@@ -96,7 +94,7 @@ func (s *MatchService) match(book *OrderBook, taker *OrderItem, makers *[]*Order
 		}
 
 		matchedAmount := decimal.Min(remaining, maker.Amount)
-		// 注意这里传参增加了 refID (即对方订单ID) 和 changeType
+		// 传入 Taker 和 Maker 的 ID 用于审计日志
 		if err := s.handleTrade(book.Symbol, taker, maker, maker.Price, matchedAmount, isTakerBuy); err != nil {
 			log.Printf("撮合事务失败: %v", err)
 			break
@@ -172,7 +170,8 @@ func (s *MatchService) handleTrade(symbol string, taker, maker *OrderItem, price
 	})
 
 	if err == nil {
-		s.syncToSecondarySystems(symbol, price, amount, side, now)
+		// 这里增加了 taker.ID 和 maker.ID 的传递
+		s.syncToSecondarySystems(symbol, price, amount, side, now, taker.ID, maker.ID)
 	}
 	return err
 }
@@ -228,14 +227,18 @@ func (s *MatchService) UpdateBalance(tx *gorm.DB, userID uint64, asset string, c
 	return tx.Create(&logEntry).Error
 }
 
-// syncToSecondarySystems 完善后的订阅推送逻辑
-func (s *MatchService) syncToSecondarySystems(symbol string, price, amount decimal.Decimal, side string, now time.Time) {
+func (s *MatchService) syncToSecondarySystems(symbol string, price, amount decimal.Decimal, side string, now time.Time, takerID, makerID uint64) {
 	go func() {
-		// 写入 ClickHouse (用于行情分析)
-		_ = db.CH.Exec(context.Background(), "INSERT INTO trades (symbol, price, amount, taker_side, ts) VALUES (?, ?, ?, ?, ?)",
+		ctx := context.Background()
+		// 写入 trades 表 (K线聚合源)
+		_ = db.CH.Exec(ctx, "INSERT INTO trades (symbol, price, amount, taker_side, ts) VALUES (?, ?, ?, ?, ?)",
 			symbol, price.String(), amount.String(), side, now)
 
-		// 广播最新成交 (通过 TopicChan 进行订阅分发)
+		// 写入 trade_logs 表
+		_ = db.CH.Exec(ctx, "INSERT INTO trade_logs (symbol, price, amount, side, taker_order_id, maker_order_id, ts) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			symbol, price.String(), amount.String(), side, takerID, makerID, now)
+
+		// WebSocket
 		tradeMsg, _ := json.Marshal(map[string]interface{}{
 			"type": "TRADE_UPDATE",
 			"data": map[string]interface{}{
@@ -255,7 +258,6 @@ func (s *MatchService) syncToSecondarySystems(symbol string, price, amount decim
 	}()
 }
 
-// BroadcastDepth 异步广播深度更新 (适配 TopicChan)
 func (s *MatchService) BroadcastDepth(symbol string) {
 	go func() {
 		bids, asks := s.GetDepth(symbol, 20)

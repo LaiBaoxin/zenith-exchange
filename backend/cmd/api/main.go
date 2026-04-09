@@ -47,7 +47,8 @@ func main() {
 	sysSvc := &service.SystemService{}
 	klineSvc := service.NewKlineService()
 	assetsSvc := service.NewAssetsService()
-	marketSvc := service.NewMarketService(klineSvc, matchSvc)
+	hubSvc := service.NewHub()
+	marketSvc := service.NewMarketService(klineSvc, matchSvc, hubSvc)
 
 	// 启动后台异步任务
 	go marketSvc.StartPriceSimulationMock("BTC_USDT") // 模拟买卖交易
