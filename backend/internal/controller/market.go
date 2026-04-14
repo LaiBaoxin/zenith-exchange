@@ -3,6 +3,7 @@ package controller
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/wwater/zenith-exchange/backend/internal/service"
@@ -60,6 +61,6 @@ func (h *MarketHandler) GetDepth(c *gin.Context) {
 		"symbol": symbol,
 		"bids":   bids,
 		"asks":   asks,
-		"ts":     strconv.FormatInt(c.Request.Context().Value("start_time").(int64), 10), // 演示用，可以简单给个当前时间
+		"ts":     strconv.FormatInt(time.Now().UnixMilli(), 10),
 	})
 }

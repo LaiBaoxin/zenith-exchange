@@ -5,7 +5,7 @@ import "time"
 // Order 订单表
 type Order struct {
 	ID           uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID       uint64    `gorm:"not null;index:idx_user_status" json:"user_id"`
+	UserID       int64     `gorm:"not null;index:idx_user_status" json:"user_id"`
 	Symbol       string    `gorm:"type:varchar(20);not null;index:idx_symbol_status" json:"symbol"`
 	Side         string    `gorm:"type:enum('buy','sell');not null" json:"side"`
 	Type         string    `gorm:"type:enum('limit','market');not null;default:'limit'" json:"type"`
@@ -16,4 +16,6 @@ type Order struct {
 	MsgHash      string    `gorm:"type:char(66)" json:"msg_hash"`
 	Signature    string    `gorm:"type:text" json:"signature"`
 	CreatedAt    time.Time `gorm:"type:datetime(3);default:CURRENT_TIMESTAMP(3)" json:"created_at"`
+	UpdatedAt    time.Time `gorm:"type:datetime(3);default:CURRENT_TIMESTAMP(3)" json:"updated_at"`
+	IsMock       bool      `gorm:"type:TINYINT;default:0" json:"is_mock"`
 }
