@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,10 +18,11 @@ import (
 
 type OrderItem struct {
 	ID        uint64
-	UserID    uint64
+	UserID    int64
 	Price     decimal.Decimal
 	Amount    decimal.Decimal
 	Timestamp time.Time
+	IsMock    bool
 }
 
 type OrderBook struct {
@@ -66,6 +68,7 @@ func (s *MatchService) ProcessOrder(order *model.Order) {
 		Price:     decimal.NewFromFloat(order.Price),
 		Amount:    decimal.NewFromFloat(order.Amount),
 		Timestamp: order.CreatedAt,
+		IsMock:    order.IsMock,
 	}
 
 	if order.Side == "buy" {
@@ -123,8 +126,14 @@ func (s *MatchService) handleTrade(symbol string, taker, maker *OrderItem, price
 	}
 	totalQuoteAmount := price.Mul(amount)
 
-	// 事务更新：订单状态和账户余额
+	parts := strings.Split(symbol, "_")
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid symbol format")
+	}
+	baseAsset, quoteAsset := parts[0], parts[1]
+
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		// 更新订单状态 (Mock 订单不在数据库中，updateOrderStatus 会静默 no-op)
 		if err := s.updateOrderStatus(tx, maker.ID, amount); err != nil {
 			return err
 		}
@@ -132,52 +141,54 @@ func (s *MatchService) handleTrade(symbol string, taker, maker *OrderItem, price
 			return err
 		}
 
-		// 使用硬编码设置BTC交易
-		baseAsset, quoteAsset := "BTC", "USDT"
+		// Taker 资产划转 (跳过 Mock 用户，Mock 用户无数据库账户)
+		if !taker.IsMock {
+			if isTakerBuy {
+				if err := s.UpdateBalance(tx, taker.UserID, quoteAsset, totalQuoteAmount.Neg(), true, taker.ID, "trade"); err != nil {
+					return err
+				}
+				if err := s.UpdateBalance(tx, taker.UserID, baseAsset, amount, false, taker.ID, "trade"); err != nil {
+					return err
+				}
+			} else {
+				if err := s.UpdateBalance(tx, taker.UserID, baseAsset, amount.Neg(), true, taker.ID, "trade"); err != nil {
+					return err
+				}
+				if err := s.UpdateBalance(tx, taker.UserID, quoteAsset, totalQuoteAmount, false, taker.ID, "trade"); err != nil {
+					return err
+				}
+			}
+		}
 
-		if isTakerBuy {
-			// Taker 买: 扣冻结 USDT, 加可用 BTC
-			if err := s.UpdateBalance(tx, taker.UserID, quoteAsset, totalQuoteAmount.Neg(), true, taker.ID, "trade"); err != nil {
-				return err
-			}
-			if err := s.UpdateBalance(tx, taker.UserID, baseAsset, amount, false, taker.ID, "trade"); err != nil {
-				return err
-			}
-			// Maker 卖: 扣冻结 BTC, 加可用 USDT
-			if err := s.UpdateBalance(tx, maker.UserID, baseAsset, amount.Neg(), true, maker.ID, "trade"); err != nil {
-				return err
-			}
-			if err := s.UpdateBalance(tx, maker.UserID, quoteAsset, totalQuoteAmount, false, maker.ID, "trade"); err != nil {
-				return err
-			}
-		} else {
-			// Taker 卖: 扣冻结 BTC, 加可用 USDT
-			if err := s.UpdateBalance(tx, taker.UserID, baseAsset, amount.Neg(), true, taker.ID, "trade"); err != nil {
-				return err
-			}
-			if err := s.UpdateBalance(tx, taker.UserID, quoteAsset, totalQuoteAmount, false, taker.ID, "trade"); err != nil {
-				return err
-			}
-			// Maker 买: 扣冻结 USDT, 加可用 BTC
-			if err := s.UpdateBalance(tx, maker.UserID, quoteAsset, totalQuoteAmount.Neg(), true, maker.ID, "trade"); err != nil {
-				return err
-			}
-			if err := s.UpdateBalance(tx, maker.UserID, baseAsset, amount, false, maker.ID, "trade"); err != nil {
-				return err
+		// Maker 资产划转 (跳过 Mock 用户)
+		if !maker.IsMock {
+			if isTakerBuy {
+				if err := s.UpdateBalance(tx, maker.UserID, baseAsset, amount.Neg(), true, maker.ID, "trade"); err != nil {
+					return err
+				}
+				if err := s.UpdateBalance(tx, maker.UserID, quoteAsset, totalQuoteAmount, false, maker.ID, "trade"); err != nil {
+					return err
+				}
+			} else {
+				if err := s.UpdateBalance(tx, maker.UserID, quoteAsset, totalQuoteAmount.Neg(), true, maker.ID, "trade"); err != nil {
+					return err
+				}
+				if err := s.UpdateBalance(tx, maker.UserID, baseAsset, amount, false, maker.ID, "trade"); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
 	})
 
 	if err == nil {
-		// 这里增加了 taker.ID 和 maker.ID 的传递
 		s.syncToSecondarySystems(symbol, price, amount, side, now, taker.ID, maker.ID)
 	}
 	return err
 }
 
 // UpdateBalance 原子更新用户余额
-func (s *MatchService) UpdateBalance(tx *gorm.DB, userID uint64, asset string, change decimal.Decimal, isFrozen bool, refID uint64, changeType string) error {
+func (s *MatchService) UpdateBalance(tx *gorm.DB, userID int64, asset string, change decimal.Decimal, isFrozen bool, refID uint64, changeType string) error {
 	var account model.Account
 	// 获取当前记录
 	if err := tx.Where("user_id = ? AND currency = ?", userID, asset).First(&account).Error; err != nil {
@@ -398,4 +409,58 @@ func (s *MatchService) recoveryOrder(order *model.Order) {
 		s.addToOrderBook(book, item, order.Side == "buy")
 		book.mu.Unlock()
 	}
+}
+
+// ClearMockOrders 清除指定交易对的所有 Mock 订单，防止无限增长
+func (s *MatchService) ClearMockOrders(symbol string) {
+	s.mu.RLock()
+	book, ok := s.Books[symbol]
+	s.mu.RUnlock()
+	if !ok {
+		return
+	}
+
+	book.mu.Lock()
+	defer book.mu.Unlock()
+
+	// 仅保留真实用户订单
+	var realBids []*OrderItem
+	for _, item := range book.Bids {
+		if !item.IsMock {
+			realBids = append(realBids, item)
+		}
+	}
+	book.Bids = realBids
+
+	var realAsks []*OrderItem
+	for _, item := range book.Asks {
+		if !item.IsMock {
+			realAsks = append(realAsks, item)
+		}
+	}
+	book.Asks = realAsks
+}
+
+// InjectMockOrder 用于 Mock 注入内存订单
+func (s *MatchService) InjectMockOrder(symbol string, price decimal.Decimal, amount decimal.Decimal, side string) {
+	s.mu.Lock()
+	book, ok := s.Books[symbol]
+	if !ok {
+		book = &OrderBook{Symbol: symbol}
+		s.Books[symbol] = book
+	}
+	s.mu.Unlock()
+
+	book.mu.Lock()
+	defer book.mu.Unlock()
+
+	item := &OrderItem{
+		ID:        uint64(time.Now().UnixNano()),
+		UserID:    999,
+		Price:     price,
+		Amount:    amount,
+		Timestamp: time.Now(),
+		IsMock:    true,
+	}
+	s.addToOrderBook(book, item, side == "buy")
 }
