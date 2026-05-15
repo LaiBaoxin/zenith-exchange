@@ -40,14 +40,19 @@ func (h *OrderHandler) GetTodayList(c *gin.Context) {
 
 // GetAllOrders 获取用户所有历史订单
 func (h *OrderHandler) GetAllOrders(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	val, _ := c.Get("user_id")
+	userID, ok := val.(int64)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, "无效的用户 ID 类型")
+		return
+	}
 	symbol := c.Query("symbol")
 
 	// 获取分页参数
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
 
-	orders, total, err := h.orderService.GetUserOrderHistory(c.Request.Context(), userID.(int64), symbol, page, pageSize)
+	orders, total, err := h.orderService.GetUserOrderHistory(c.Request.Context(), userID, symbol, page, pageSize)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "获取历史账本失败")
 		return
@@ -62,8 +67,9 @@ func (h *OrderHandler) GetAllOrders(c *gin.Context) {
 
 // Cancel 撤销未成交或部分成交的订单
 func (h *OrderHandler) Cancel(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
+	val, _ := c.Get("user_id")
+	userID, ok := val.(int64)
+	if !ok {
 		response.Error(c, http.StatusUnauthorized, "未授权访问")
 		return
 	}
@@ -86,7 +92,7 @@ func (h *OrderHandler) Cancel(c *gin.Context) {
 		return
 	}
 
-	err = h.orderService.CancelOrder(c.Request.Context(), userID.(int64), orderID)
+	err = h.orderService.CancelOrder(c.Request.Context(), userID, orderID)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -97,7 +103,12 @@ func (h *OrderHandler) Cancel(c *gin.Context) {
 
 // Place 下单 (保持原有逻辑)
 func (h *OrderHandler) Place(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	val, _ := c.Get("user_id")
+	userID, ok := val.(int64)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, "无效的用户 ID 类型")
+		return
+	}
 
 	var req struct {
 		Symbol string  `json:"symbol" binding:"required"`
@@ -112,7 +123,7 @@ func (h *OrderHandler) Place(c *gin.Context) {
 	}
 
 	newOrder := &model.Order{
-		UserID:    userID.(int64),
+		UserID:    userID,
 		Symbol:    req.Symbol,
 		Side:      req.Side,
 		Price:     req.Price,
@@ -133,8 +144,9 @@ func (h *OrderHandler) Place(c *gin.Context) {
 
 // GetDetail 获取单个订单详情
 func (h *OrderHandler) GetDetail(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
+	val, _ := c.Get("user_id")
+	userID, ok := val.(int64)
+	if !ok {
 		response.Error(c, http.StatusUnauthorized, "未授权访问")
 		return
 	}
@@ -146,7 +158,7 @@ func (h *OrderHandler) GetDetail(c *gin.Context) {
 		return
 	}
 
-	order, err := h.orderService.GetOrderDetail(c.Request.Context(), userID.(uint64), orderID)
+	order, err := h.orderService.GetOrderDetail(c.Request.Context(), uint64(userID), orderID)
 	if err != nil {
 		response.Error(c, http.StatusNotFound, "订单不存在或无权查看")
 		return

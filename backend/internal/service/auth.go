@@ -3,19 +3,16 @@ package service
 import (
 	"errors"
 	"fmt"
-	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	dao "github.com/wwater/zenith-exchange/backend/internal/db"
 	"github.com/wwater/zenith-exchange/backend/internal/model"
-	"github.com/wwater/zenith-exchange/backend/pkg/config"
+	"github.com/wwater/zenith-exchange/backend/pkg/utils"
 	"gorm.io/gorm"
 )
 
 type AuthService struct{}
 
-// 只保留纯粹的业务逻辑，不要把 Handler 写在这里
 func (s *AuthService) LoginByAddress(address string) (string, string, error) {
 	if dao.DB == nil {
 		return "", "", errors.New("后端数据库连接对象为 nil，请检查初始化顺序")
@@ -51,7 +48,6 @@ func (s *AuthService) LoginByAddress(address string) (string, string, error) {
 						Version:   0,
 					}
 				}
-				// 批量创建执行
 				if err := tx.CreateInBatches(accounts, len(accounts)).Error; err != nil {
 					return err
 				}
@@ -66,23 +62,9 @@ func (s *AuthService) LoginByAddress(address string) (string, string, error) {
 		return "", "", err
 	}
 
-	expireHour := config.GlobalConfig.JWT.ExpireHour
-	if expireHour <= 0 {
-		expireHour = 24 // 默认 24 小时
-	}
-
-	claims := jwt.MapClaims{
-		"user_id": user.ID,
-		"address": user.WalletAddress,
-		"exp":     time.Now().Add(time.Hour * time.Duration(expireHour)).Unix(),
-		"iat":     time.Now().Unix(),
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-
-	signedToken, err := token.SignedString([]byte(config.GlobalConfig.JWT.Secret))
+	signedToken, err := utils.GenerateToken(user.ID, user.WalletAddress)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to sign token: %v", err)
+		return "", "", fmt.Errorf("token generation failed: %v", err)
 	}
 
 	return signedToken, user.WalletAddress, nil

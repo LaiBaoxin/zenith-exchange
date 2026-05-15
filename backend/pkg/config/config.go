@@ -1,8 +1,8 @@
 package config
 
 import (
-	"io/ioutil"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -78,7 +78,7 @@ func loadPrivateKey() {
 	}
 
 	// IO 读取文件内容
-	content, err := ioutil.ReadFile(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		log.Fatalf("无法读取私钥文件 [%s]: %v", path, err)
 	}

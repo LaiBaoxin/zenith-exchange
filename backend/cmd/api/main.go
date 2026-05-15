@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/wwater/zenith-exchange/backend/internal/controller"
@@ -15,8 +15,12 @@ import (
 )
 
 func main() {
-	pwd, _ := os.Getwd()
-	fmt.Println("当前程序执行路径:", pwd)
+	var err error
+
+	time.Local, err = time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		log.Printf("Failed to load location: %v", err)
+	}
 
 	// 加载配置
 	config.InitConfig()
@@ -47,15 +51,17 @@ func main() {
 	sysSvc := &service.SystemService{}
 	klineSvc := service.NewKlineService()
 	assetsSvc := service.NewAssetsService()
-	hubSvc := service.NewHub()
-	marketSvc := service.NewMarketService(klineSvc, matchSvc, hubSvc)
+	vaultSvc := service.NewVaultService(config.GlobalConfig, "ws://127.0.0.1:8545")
+	marketSvc := service.NewMarketService(klineSvc, matchSvc, hub) // 复用主 Hub，不再创建第二个实例
 
+	const symbol = "BTC_USDT"
 	// 启动后台异步任务
-	go marketSvc.StartPriceSimulationMock("BTC_USDT") // 模拟买卖交易
+	mockSvc := service.NewMockService(matchSvc, klineSvc)
+	go mockSvc.StartPriceSimulationMock(symbol)
 	go klineSvc.RunAggregator()
 
 	// 监听用户存款合约
-	monitorSvc := monitor.NewDepositMonitor(
+	monitorSvc := monitor.NewVaultMonitor(
 		"ws://127.0.0.1:8545",
 		config.GlobalConfig.Blockchain.VaultAddress,
 		hub,
@@ -64,7 +70,7 @@ func main() {
 	go monitorSvc.Start()
 
 	// 实例化 Controller 层
-	vaultHandler := controller.NewVaultHandler(config.GlobalConfig.Blockchain.VaultAddress)
+	vaultHandler := controller.NewVaultHandler(config.GlobalConfig.Blockchain.VaultAddress, vaultSvc)
 	authHandler := controller.NewAuthHandler(authSvc)
 	sysHandler := controller.NewSystemHandler(sysSvc)
 	assetHandler := controller.NewAssetsHandler(assetsSvc)

@@ -62,7 +62,7 @@ func InitDB() {
 	}
 
 	// 自动迁移
-	DB.AutoMigrate(&model.User{}, &model.Account{}, &model.Order{})
+	DB.AutoMigrate(&model.User{}, &model.Account{}, &model.Order{}, &model.BalanceLog{})
 
 	log.Println("数据库环境就绪: MySQL, ClickHouse, Redis")
 }

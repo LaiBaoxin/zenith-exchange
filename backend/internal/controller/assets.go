@@ -17,9 +17,18 @@ func NewAssetsHandler(svc *service.AssetsService) *AssetsHandler {
 
 // GetBalance 获取用户所有资产余额
 func (h *AssetsHandler) GetBalance(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userIDRaw, exists := c.Get("user_id")
+	if !exists {
+		response.Error(c, http.StatusUnauthorized, "未授权")
+		return
+	}
+	userID, ok := userIDRaw.(int64)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, "无效的用户凭证")
+		return
+	}
 
-	balances, err := h.assetsService.GetUserBalances(userID.(uint64))
+	balances, err := h.assetsService.GetUserBalances(userID)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "获取资产失败")
 		return

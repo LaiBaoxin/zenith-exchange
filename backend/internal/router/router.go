@@ -20,43 +20,47 @@ func SetupRouter(
 ) *gin.Engine {
 	r := gin.Default()
 
-	// 全局中间件
 	r.Use(CORSMiddleware())
 
-	// 健康检查
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-
+	// 公共接口 (无需 Token)
 	api := r.Group("/api")
 	{
-		// 不走鉴权
-		api.POST("/auth/login", authH.Login)                      // 登录
-		api.GET("/ws", middleware.AuthMiddleware(), wsH.HandleWS) // 创建ws连接
+		api.GET("/health", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		})
+		api.POST("/auth/login", authH.Login)
+		api.GET("/market/kline", marketH.GetKLines)
+		api.GET("/market/depth", marketH.GetDepth)
+		api.GET("/system/config", sysH.GetConfig)
 
-		// 需要鉴权的组
-		authGroup := api.Group("/", middleware.AuthMiddleware())
+		// 特殊：WS 接口单独挂载中间件
+		api.GET("/ws", middleware.AuthMiddleware(), wsH.HandleWS)
+	}
+
+	// 私有接口
+	auth := api.Group("")
+	auth.Use(middleware.AuthMiddleware())
+	{
+		// 资产相关
+		assets := auth.Group("/assets")
 		{
-			// 获取全局配置
-			authGroup.GET("/system/config", sysH.GetConfig)
+			assets.GET("/balance", assetsH.GetBalance)
+		}
 
-			// 提现相关组
-			vault := authGroup.Group("/vault")
-			{
-				vault.POST("/withdraw-sign", vaultH.HandleWithdraw)
-			}
+		// 提现相关
+		vault := auth.Group("/vault")
+		{
+			vault.POST("/withdraw-sign", vaultH.HandleWithdraw)
+		}
 
-			// 资产接口
-			authGroup.GET("/assets/balance", assetsH.GetBalance)
-
-			// 市场行情接口
-			api.GET("/market/kline", marketH.GetKLines)
-			api.GET("/market/depth", marketH.GetDepth)
-
-			// 订单相关接口
-			api.GET("/order/today", orderH.GetTodayList)
-			api.POST("/order/cancel", orderH.Cancel)
-			api.POST("/order/place", orderH.Place)
+		// 订单相关
+		orders := auth.Group("/order")
+		{
+			orders.GET("/today", orderH.GetTodayList)
+			orders.POST("/cancel", orderH.Cancel)
+			orders.POST("/place", orderH.Place)
+			orders.GET("/list", orderH.GetAllOrders)
+			orders.GET("/detail/:id", orderH.GetDetail)
 		}
 	}
 
