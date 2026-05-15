@@ -7,25 +7,26 @@ import "../src/ZenithVault.sol";
 
 contract DeployAll is Script {
     function run() external {
-        // 从环境变量读取私钥
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address deployerAddr = vm.addr(deployerPrivateKey);
+
+        vm.deal(deployerAddr, 1000000 ether);
 
         // 开始广播交易
         vm.startBroadcast(deployerPrivateKey);
 
-        // 部署 MockToken
+        // 部署 MockToken 
         MockToken token = new MockToken("Zenith Test Token", "ZNT");
-        console.log("MockToken deployed at:", address(token));
-
+        
+        // 部署 ZenithVault
         ZenithVault vault = new ZenithVault(deployerAddr);
-        console.log("ZenithVault deployed at:", address(vault));
-
-        // 初始给部署者 Mint 一些代币方便测试
-        token.mint(deployerAddr, 10000 ether);
 
         vm.stopBroadcast();
 
+        console.log("---------------------------");
+        console.log("Deployer Address:", deployerAddr);
+        console.log("ETH Balance:", deployerAddr.balance / 1e18, "ETH");
+        console.log("ZNT Balance:", token.balanceOf(deployerAddr) / 1e18, "ZNT");
         console.log("---------------------------");
         console.log("Copy these to your Frontend:");
         console.log("VAULT_ADDR =", address(vault));
