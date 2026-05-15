@@ -14,7 +14,7 @@ const WelcomeView = ({ onConnect, isDark, loading }: WelcomeProps) => {
             flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
             textAlign: 'center', background: isDark ? '#000' : '#f5f5f5', height: '100vh'
         }}>
-            <Space direction="vertical" size={24} style={{ zIndex: 1, maxWidth: '600px' }}>
+            <Space orientation="vertical" size={24} style={{ zIndex: 1, maxWidth: '600px' }}>
                 <Title level={1} style={{ margin: 0, fontSize: '48px', color: isDark ? '#fff' : '#000' }}>
                     ZENITH EXCHANGE
                 </Title>
@@ -23,10 +23,6 @@ const WelcomeView = ({ onConnect, isDark, loading }: WelcomeProps) => {
                     下一代去中心化高频交易平台
                 </Text>
 
-                {/* 这里是重点：
-                  1. onClick 直接绑定父组件传来的 handleConnect
-                  2. loading 状态由父组件统一控制，授权时按钮会自动转圈并禁用
-                */}
                 <Button
                     type="primary"
                     size="large"

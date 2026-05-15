@@ -18,7 +18,7 @@ const request: AxiosInstance = axios.create({
 // 请求拦截器
 request.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
-        const token = localStorage.getItem('zenith_auth_token');
+        const token = window.localStorage.getItem('zenith_auth_token');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
@@ -42,10 +42,14 @@ request.interceptors.response.use(
         const message = error.response?.data?.msg || error.message || '网络连接异常';
 
         if (error.response?.status === 401) {
-            console.warn('登录已过期或未授权');
+            if (error.config.url?.includes('/auth/login')) {
+                return Promise.reject(new Error(message));
+            }
+
+            console.error('鉴权失效:', error.config.url);
             localStorage.removeItem('zenith_auth_token');
             localStorage.removeItem('user_address');
-            window.location.href = '/';
+            window.dispatchEvent(new CustomEvent('auth:expired'));
         }
 
         return Promise.reject(new Error(message));
